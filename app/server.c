@@ -69,7 +69,7 @@ int main()
 	}
 
 	printf("Client connected\n");
-	// printf("Socket FN %d", new_socket);
+	printf("Socket FN %d", new_socket);
 
 	// Send http 200 response
 	char* response = "HTTP/1.1 200 OK\r\n\r\n";
