@@ -18,7 +18,7 @@ int main()
 
 	// Uncomment this block to pass the first stage
 	//
-	int server_fd, client_addr_len, new_socket;
+	int server_fd, client_addr_len, new_socket_fd;
 	struct sockaddr_in client_addr;
 	//
 	server_fd = socket(AF_INET, SOCK_STREAM, 0); // AF_INET => IPv4 || SOCK_STREAM => TCP || 0 => IP protocol
@@ -61,21 +61,44 @@ int main()
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 
-	new_socket = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
-	if (new_socket == -1)
+	new_socket_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
+	if (new_socket_fd == -1)
 	{
 		printf("Accept failed: %s \n", strerror(errno));
 		return 1;
 	}
 
 	printf("Client connected\n");
-	printf("Socket FN %d", new_socket);
+	printf("Socket FN %d\n", new_socket_fd);
+
+	ssize_t val_read;
+	char buffer[1024]; // buffer of size 1024 to store the request.
+	// GET requests are limited to 2048 characters.
+
+	printf("Size of buffer: %lu\n", sizeof(buffer));
+	val_read = read(new_socket_fd, buffer, sizeof(buffer) - 1); // -1 on the buffer for the null terminator
+	printf("\nRequest: \n%s\n\n", buffer);
+
+	const char delimiters[2] = " ";
+
+	char* req_type = strtok(buffer, delimiters);
+	char* path = strtok(NULL, delimiters); // I have no idea why this works.
+
+	printf("%s", path);
+	
+	char *response;
+	
+	if (strcmp(path, "/") == 0){
+		response = "HTTP/1.1 200 OK\r\n\r\n";
+	}
+	else{
+		response = "HTTP/1.1 404 Not Found\r\n\r\n";
+	}
 
 	// Send http 200 response
-	char* response = "HTTP/1.1 200 OK\r\n\r\n";
-	send(new_socket, response, strlen(response),0);
-	
-	close(new_socket);
+	send(new_socket_fd, response, strlen(response), 0);
+
+	close(new_socket_fd);
 	close(server_fd);
 
 	return 0;
