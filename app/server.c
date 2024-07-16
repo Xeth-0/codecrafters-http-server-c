@@ -73,18 +73,26 @@ int main()
 
 	ssize_t val_read;
 	char buffer[2048 * 4]; // buffer of size 2048 to store the request.
-	// GET requests are limited to 2048 characters.
 
-	printf("Size of buffer: %lu\n", sizeof(buffer));
+	printf("Size of buffer: %lu\n", sizeof(buffer)); // GET requests are limited to 2048 characters.
+
+	// Read the incoming request and store it in the buffer.
 	val_read = read(new_socket_fd, buffer, sizeof(buffer) - 1); // -1 on the buffer for the null terminator
-	printf("\nRequest: \n%s\n\n", buffer);
+	printf("\nRequest Buffer: \n%s\n\n", buffer);
 
-	const char delimiters[2] = " ";
+	// Separate the Request Line, Headers and Request Body
+	char *request_line = strtok(buffer, "\r\n");
 
-	char *req_type = strtok(buffer, delimiters);
-	char *path = strtok(NULL, delimiters); // I have no idea why this works.
+	char *headers = strtok(NULL, ""); // TODO Currently does not work. headers will also include the body.
+	char *request_body = strtok(NULL, "\r\n");
 
-	printf("%s\n", path);
+	printf("Request Line: %s\nHeaders: %s\nBody: %s\n", request_line, headers, request_body);
+
+	// Parse the request line for the path.
+	char *req_type = strtok(request_line, " ");
+	char *path = strtok(NULL, " "); // I have no idea why this works.
+
+	printf("Full Path: %s\n", path);
 
 	char response[1024];
 
@@ -99,16 +107,49 @@ int main()
 		char *response_body = strtok(NULL, "/");
 
 		sprintf(
-			response, 
-			"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
-			strlen(response_body), 
+			response,
+			"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
+			strlen(response_body),
 			response_body);
 
 		printf("RESPONSE: %s\n", response);
 	}
+	else if (strcmp(strtok(path, "/"), "user-agent") == 0)
+	{
+		printf("Path found: %s\n", path);
+		char *header_rest;
+
+		char *header_line = strtok_r(headers, "\r\n", &header_rest);
+
+		// Iterate over the headers till we find the User-Agent header
+		while (header_line != NULL)
+		{
+			printf("Header Line: %s\n", header_line);
+
+			char *headerline_rest;
+			char *header_name = strtok_r(header_line, ": ", &headerline_rest);
+
+			if (strcmp(header_name, "user-agent") == 0 || strcmp(header_name, "User-Agent") == 0)
+			{
+				printf("User Agent line: %s\n", header_line);
+				char *user_agent = strtok_r(NULL, " ", &headerline_rest);
+				printf("User Agent Value: %s\n", user_agent);
+
+				sprintf(
+					response,
+					"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
+					strlen(user_agent),
+					user_agent);
+
+				break;
+			}
+
+			header_line = strtok_r(NULL, "\r\n", &header_rest);
+		}
+	}
 	else
 	{
-		printf("Path Not found: %s\n", path);
+		printf("Path Not found: %s\n", strtok(path, "/"));
 		sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
 	}
 
