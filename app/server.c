@@ -72,7 +72,7 @@ int main()
 	printf("Socket FN %d\n", new_socket_fd);
 
 	ssize_t val_read;
-	char buffer[1024]; // buffer of size 1024 to store the request.
+	char buffer[2048 * 4]; // buffer of size 2048 to store the request.
 	// GET requests are limited to 2048 characters.
 
 	printf("Size of buffer: %lu\n", sizeof(buffer));
@@ -81,18 +81,35 @@ int main()
 
 	const char delimiters[2] = " ";
 
-	char* req_type = strtok(buffer, delimiters);
-	char* path = strtok(NULL, delimiters); // I have no idea why this works.
+	char *req_type = strtok(buffer, delimiters);
+	char *path = strtok(NULL, delimiters); // I have no idea why this works.
 
-	printf("%s", path);
-	
-	char *response;
-	
-	if (strcmp(path, "/") == 0){
-		response = "HTTP/1.1 200 OK\r\n\r\n";
+	printf("%s\n", path);
+
+	char response[1024];
+
+	if (strcmp(path, "/") == 0)
+	{
+		sprintf(response, "HTTP/1.1 200 OK\r\n\r\n");
 	}
-	else{
-		response = "HTTP/1.1 404 Not Found\r\n\r\n";
+	else if (strcmp(strtok(path, "/"), "echo") == 0)
+	{
+		printf("Path found: %s\n", path);
+
+		char *response_body = strtok(NULL, "/");
+
+		sprintf(
+			response, 
+			"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+			strlen(response_body), 
+			response_body);
+
+		printf("RESPONSE: %s\n", response);
+	}
+	else
+	{
+		printf("Path Not found: %s\n", path);
+		sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
 	}
 
 	// Send http 200 response
