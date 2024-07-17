@@ -6,6 +6,9 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <pthread.h>
+
+void *handle_connection(void *new_socket_fd);
 
 int main()
 {
@@ -57,40 +60,70 @@ int main()
 		printf("Listen failed: %s \n", strerror(errno));
 		return 1;
 	}
-	//
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 
-	new_socket_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
-	if (new_socket_fd == -1)
+	// Adding Multi-Threading and an infinite loop to keep the server alive.
+	while (1)
 	{
-		printf("Accept failed: %s \n", strerror(errno));
-		return 1;
+		pthread_t new_process;
+
+		new_socket_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
+		if (new_socket_fd == -1)
+		{
+			continue;
+		}
+		else
+		{
+			int *p_socket_fd = malloc(sizeof(int));
+			if (p_socket_fd == NULL)
+			{
+				printf("Failed to allocate memory for socket ID\n");
+				continue;
+			}
+
+			*p_socket_fd = new_socket_fd;
+			pthread_create(&new_process, NULL, handle_connection, p_socket_fd);
+		}
+		
+		pthread_detach(new_process);
 	}
 
-	printf("Client connected\n");
-	printf("Socket FN %d\n", new_socket_fd);
+	close(server_fd);
+	return 0;
+}
+
+void *handle_connection(void *p_socket_fd)
+{
+	int new_socket_fd = *((int *)p_socket_fd);
+
+	printf("Client connected: Socket - %d\n", new_socket_fd);
 
 	ssize_t val_read;
 	char buffer[2048 * 4]; // buffer of size 2048 to store the request.
 
-	printf("Size of buffer: %lu\n", sizeof(buffer)); // GET requests are limited to 2048 characters.
+	// printf("Size of buffer: %lu\n", sizeof(buffer)); // GET requests are limited to 2048 characters.
 
 	// Read the incoming request and store it in the buffer.
 	val_read = read(new_socket_fd, buffer, sizeof(buffer) - 1); // -1 on the buffer for the null terminator
+	if (val_read == -1 || strlen(buffer) == 0){
+		printf("Error reading request into buffer...\n");
+		return NULL;
+	}
 	printf("\nRequest Buffer: \n%s\n\n", buffer);
 
 	// Separate the Request Line, Headers and Request Body
-	char *request_line = strtok(buffer, "\r\n");
+	char *buffer_rest;
+	char *request_line = strtok_r(buffer, "\r\n", &buffer_rest);
+	char *headers = strtok_r(NULL, "", &buffer_rest); // TODO Currently does not work. headers will also include the body.
+	char *request_body = strtok_r(NULL, "\r\n", &buffer_rest);
 
-	char *headers = strtok(NULL, ""); // TODO Currently does not work. headers will also include the body.
-	char *request_body = strtok(NULL, "\r\n");
-
-	printf("Request Line: %s\nHeaders: %s\nBody: %s\n", request_line, headers, request_body);
+	// printf("Request Line: %s\nHeaders: %s\nBody: %s\n", request_line, headers, request_body);
 
 	// Parse the request line for the path.
-	char *req_type = strtok(request_line, " ");
-	char *path = strtok(NULL, " "); // I have no idea why this works.
+	char *request_line_rest;
+	char *req_type = strtok_r(request_line, " ", &request_line_rest);
+	char *path = strtok_r(NULL, " ", &request_line_rest); // I have no idea why this works.
 
 	printf("Full Path: %s\n", path);
 
@@ -131,7 +164,7 @@ int main()
 
 			if (strcmp(header_name, "user-agent") == 0 || strcmp(header_name, "User-Agent") == 0)
 			{
-				printf("User Agent line: %s\n", header_line);
+				// printf("User Agent line: %s\n", header_line);
 				char *user_agent = strtok_r(NULL, " ", &headerline_rest);
 				printf("User Agent Value: %s\n", user_agent);
 
@@ -157,7 +190,4 @@ int main()
 	send(new_socket_fd, response, strlen(response), 0);
 
 	close(new_socket_fd);
-	close(server_fd);
-
-	return 0;
 }
