@@ -133,14 +133,21 @@ void *handle_connection(void *p_socket_fd)
 	// Separate the Request Line, Headers and Request Body
 	char *buffer_rest;
 	char *request_line = strtok_r(buffer, "\r\n", &buffer_rest);
-	char *headers = strtok_r(NULL, "", &buffer_rest); // TODO Currently does not work. headers will also include the body.
-	char *request_body = strtok_r(NULL, "\r\n", &buffer_rest);
+	char *headers = strtok_r(NULL, "", &buffer_rest); // Also contains the body at this point.
 
-	// printf("Request Line: %s\nHeaders: %s\nBody: %s\n", request_line, headers, request_body);
+	char *body_delimiter = strstr(headers, "\r\n\r\n");
+
+	// Terminate the headers manually at the start of the body since strtok can't do it itself.
+	*body_delimiter = '\0'; // Headers now separated from the body.
+
+	// Move the pointer to the end of \r\n\r\n (The actual start of the body content).
+	char *request_body = body_delimiter + 4;
+
+	printf("Request Line: %s\nHeaders: %s\nBody: %s\n", request_line, headers, request_body);
 
 	// Parse the request line for the path.
 	char *request_line_rest;
-	char *req_type = strtok_r(request_line, " ", &request_line_rest);
+	char *request_method = strtok_r(request_line, " ", &request_line_rest);
 	char *path = strtok_r(NULL, " ", &request_line_rest); // I have no idea why this works.
 
 	printf("Full Path: %s\n", path);
@@ -215,32 +222,53 @@ void *handle_connection(void *p_socket_fd)
 			filename);
 		printf("FILE PATH: %s\n", file_path);
 
-		// Open the file for reading
 		FILE *fptr;
-		fptr = fopen(file_path, "r");
 
-		if (fptr != NULL)
+		if (strcmp(request_method, "GET") == 0)
 		{
-			char file_contents[500];
-			char file_buffer[200];
-			while (fgets(file_buffer, sizeof(file_buffer), fptr))
+			// Open the file for reading
+			fptr = fopen(file_path, "r");
+
+			if (fptr != NULL)
 			{
-				printf("File Content: %s\n", file_buffer);
-				strncat(file_contents, file_buffer, sizeof(file_contents) - strlen(file_contents) - 1);
+				char file_contents[500];
+				char file_buffer[200];
+				while (fgets(file_buffer, sizeof(file_buffer), fptr))
+				{
+					printf("File Content: %s\n", file_buffer);
+					strncat(file_contents, file_buffer, sizeof(file_contents) - strlen(file_contents) - 1);
+				}
+
+				sprintf(
+					response,
+					"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %ld\r\n\r\n%s",
+					strlen(file_contents),
+					file_contents);
+				fclose(fptr);
 			}
-
-			sprintf(
-				response,
-				"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %ld\r\n\r\n%s",
-				strlen(file_contents),
-				file_contents);
-
-			fclose(fptr);
+			else
+			{
+				printf("File Not found: %s\n", filename);
+				sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
+			}
 		}
-		else
+		else if (strcmp(request_method, "POST") == 0)
 		{
-			printf("File Not found: %s\n", filename);
-			sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
+			fptr = fopen(file_path, "w");
+
+			if (fptr != NULL)
+			{
+				fprintf(fptr, request_body);
+				fclose(fptr);
+				sprintf(
+					response,
+					"HTTP/1.1 201 Created\r\n\r\n");
+			}
+			else
+			{
+				printf("Error opening file: %s\n", filename);
+				sprintf(response, "HTTP/1.1 400 Internal Server Error\r\n\r\n");
+			}
 		}
 	}
 	else
@@ -249,7 +277,7 @@ void *handle_connection(void *p_socket_fd)
 		sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
 	}
 
-	// Send http 200 response
+	// Send the Response
 	send(new_socket_fd, response, strlen(response), 0);
 
 	close(new_socket_fd);
