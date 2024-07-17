@@ -8,10 +8,21 @@
 #include <unistd.h>
 #include <pthread.h>
 
+static char *file_directory;
+
 void *handle_connection(void *new_socket_fd);
 
-int main()
+int main(int argc, char **argv)
 {
+	if (argc >= 2 && (strcmp(argv[1], "--directory") == 0))
+	{
+		file_directory = argv[2];
+	}
+	else
+	{
+		file_directory = "/tmp";
+	}
+
 	// Disable output buffering
 	setbuf(stdout, NULL);
 	setbuf(stderr, NULL);
@@ -83,9 +94,14 @@ int main()
 			}
 
 			*p_socket_fd = new_socket_fd;
-			pthread_create(&new_process, NULL, handle_connection, p_socket_fd);
+			if (pthread_create(&new_process, NULL, handle_connection, p_socket_fd) != 0)
+			{
+				printf("Failed to create thread\n");
+				free(p_socket_fd);
+				continue;
+			}
 		}
-		
+
 		pthread_detach(new_process);
 	}
 
@@ -93,11 +109,11 @@ int main()
 	return 0;
 }
 
-
 void *handle_connection(void *p_socket_fd)
 {
 	int new_socket_fd = *((int *)p_socket_fd);
 
+	printf("File Directory: %s\n", file_directory);
 	printf("Client connected: Socket - %d\n", new_socket_fd);
 
 	ssize_t val_read;
@@ -107,7 +123,8 @@ void *handle_connection(void *p_socket_fd)
 
 	// Read the incoming request and store it in the buffer.
 	val_read = read(new_socket_fd, buffer, sizeof(buffer) - 1); // -1 on the buffer for the null terminator
-	if (val_read == -1 || strlen(buffer) == 0){
+	if (val_read == -1 || strlen(buffer) == 0)
+	{
 		printf("Error reading request into buffer...\n");
 		return NULL;
 	}
@@ -130,15 +147,18 @@ void *handle_connection(void *p_socket_fd)
 
 	char response[1024];
 
+	char *path_tok_rest;
+	char *path_tok = strtok_r(path, "/", &path_tok_rest);
+
 	if (strcmp(path, "/") == 0)
 	{
 		sprintf(response, "HTTP/1.1 200 OK\r\n\r\n");
 	}
-	else if (strcmp(strtok(path, "/"), "echo") == 0)
+	else if (strcmp(path_tok, "echo") == 0)
 	{
 		printf("Path found: %s\n", path);
 
-		char *response_body = strtok(NULL, "/");
+		char *response_body = strtok_r(NULL, "/", &path_tok_rest);
 
 		sprintf(
 			response,
@@ -148,7 +168,7 @@ void *handle_connection(void *p_socket_fd)
 
 		printf("RESPONSE: %s\n", response);
 	}
-	else if (strcmp(strtok(path, "/"), "user-agent") == 0)
+	else if (strcmp(path_tok, "user-agent") == 0)
 	{
 		printf("Path found: %s\n", path);
 		char *header_rest;
@@ -179,6 +199,48 @@ void *handle_connection(void *p_socket_fd)
 			}
 
 			header_line = strtok_r(NULL, "\r\n", &header_rest);
+		}
+	}
+	else if (strcmp(path_tok, "files") == 0)
+	{
+		char *filename = strtok_r(NULL, "/", &path_tok_rest);
+		printf("FileName: %s\n", filename);
+
+		// Construct the file path
+		char file_path[strlen(file_directory) + strlen(file_directory) + 20];
+		sprintf(
+			file_path,
+			"%s/%s",
+			file_directory,
+			filename);
+		printf("FILE PATH: %s\n", file_path);
+
+		// Open the file for reading
+		FILE *fptr;
+		fptr = fopen(file_path, "r");
+
+		if (fptr != NULL)
+		{
+			char file_contents[500];
+			char file_buffer[200];
+			while (fgets(file_buffer, sizeof(file_buffer), fptr))
+			{
+				printf("File Content: %s\n", file_buffer);
+				strncat(file_contents, file_buffer, sizeof(file_contents) - strlen(file_contents) - 1);
+			}
+
+			sprintf(
+				response,
+				"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %ld\r\n\r\n%s",
+				strlen(file_contents),
+				file_contents);
+
+			fclose(fptr);
+		}
+		else
+		{
+			printf("File Not found: %s\n", filename);
+			sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
 		}
 	}
 	else
