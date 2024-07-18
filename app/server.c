@@ -8,9 +8,24 @@
 #include <unistd.h>
 #include <pthread.h>
 
+// TRYING TO LEARN. The comments or the overall structure might have blatant mistakes or appear annoying,
+// and I frankly do not give a **** since this is written for me primarily (apologies but you can find better code than this elsewhere).
+
 static char *file_directory;
 
 void *handle_connection(void *new_socket_fd);
+
+struct Request_Line
+{
+	char *Request_Method;
+	char *Path;
+};
+
+struct Headers
+{ // Storing headers here for ease of use. Only adding those i encounter as i go so the list will not be exhaustive.
+	char *User_Agent;
+	char *Accept_Encoding;
+};
 
 int main(int argc, char **argv)
 {
@@ -113,8 +128,10 @@ void *handle_connection(void *p_socket_fd)
 {
 	int new_socket_fd = *((int *)p_socket_fd);
 
-	printf("File Directory: %s\n", file_directory);
-	printf("Client connected: Socket - %d\n", new_socket_fd);
+	printf("Initiating connection thread...\n");
+
+	printf("---Client connected: Socket - %d\n", new_socket_fd);
+	printf("---File Directory: %s\n", file_directory);
 
 	ssize_t val_read;
 	char buffer[2048 * 4]; // buffer of size 2048 to store the request.
@@ -125,33 +142,62 @@ void *handle_connection(void *p_socket_fd)
 	val_read = read(new_socket_fd, buffer, sizeof(buffer) - 1); // -1 on the buffer for the null terminator
 	if (val_read == -1 || strlen(buffer) == 0)
 	{
-		printf("Error reading request into buffer...\n");
+		printf("***Error reading request into buffer...\n");
 		return NULL;
 	}
-	printf("\nRequest Buffer: \n%s\n\n", buffer);
+	printf("\n---Incoming Request Buffer: \n%s\n\n", buffer);
 
 	// Separate the Request Line, Headers and Request Body
 	char *buffer_rest;
-	char *request_line = strtok_r(buffer, "\r\n", &buffer_rest);
-	char *headers = strtok_r(NULL, "", &buffer_rest); // Also contains the body at this point.
+	char *raw_request_line = strtok_r(buffer, "\r\n", &buffer_rest);
 
-	char *body_delimiter = strstr(headers, "\r\n\r\n");
+	char *raw_headers = strtok_r(NULL, "", &buffer_rest); // Also contains the body at this point.
 
+	// Separate the body first.
+	char *body_delimiter = strstr(raw_headers, "\r\n\r\n"); // Pointer to the start of the request body.
 	// Terminate the headers manually at the start of the body since strtok can't do it itself.
 	*body_delimiter = '\0'; // Headers now separated from the body.
 
-	// Move the pointer to the end of \r\n\r\n (The actual start of the body content).
+	// Set the pointer for the start of the body to the end of \r\n\r\n that marks the end of the headers.
 	char *request_body = body_delimiter + 4;
-
-	printf("Request Line: %s\nHeaders: %s\nBody: %s\n", request_line, headers, request_body);
 
 	// Parse the request line for the path.
 	char *request_line_rest;
-	char *request_method = strtok_r(request_line, " ", &request_line_rest);
+	char *request_method = strtok_r(raw_request_line, " ", &request_line_rest);
 	char *path = strtok_r(NULL, " ", &request_line_rest); // I have no idea why this works.
 
-	printf("Full Path: %s\n", path);
+	printf("---Parsed Request\n");
+	printf("Method: %s\nPath: %s\n", request_method, path);
 
+	// Parse the headers.
+	struct Headers request_headers = {.Accept_Encoding = "", .User_Agent = ""};
+
+	char *header_rest;
+	char *header_line = strtok_r(raw_headers, "\r\n", &header_rest);
+
+	// Iterate over the headers
+	while (header_line != NULL)
+	{
+		char *headerline_rest;
+		char *header_name = strtok_r(header_line, ": ", &headerline_rest);
+
+		if (strcmp(header_name, "user-agent") == 0 || strcmp(header_name, "User-Agent") == 0)
+		{
+			// printf("User Agent line: %s\n", header_line);
+			request_headers.User_Agent = strtok_r(NULL, " ", &headerline_rest);
+		}
+		else if (strcmp(header_name, "accept-encoding") == 0 || strcmp(header_name, "Accept-Encoding") == 0)
+		{
+			request_headers.Accept_Encoding = strtok_r(NULL, " ", &headerline_rest);
+		}
+
+		header_line = strtok_r(NULL, "\r\n", &header_rest);
+	}
+
+	printf("---Headers: \nAccept-Encoding: %s, User-Agent: %s\n", request_headers.Accept_Encoding, request_headers.User_Agent);
+
+	printf("Constructing Response...\n");
+	// Handle the request
 	char response[1024];
 
 	char *path_tok_rest;
@@ -163,55 +209,44 @@ void *handle_connection(void *p_socket_fd)
 	}
 	else if (strcmp(path_tok, "echo") == 0)
 	{
-		printf("Path found: %s\n", path);
+		printf("---Path found: %s\n", path);
 
 		char *response_body = strtok_r(NULL, "/", &path_tok_rest);
+		char *accept_encoding_header = (strcmp(request_headers.Accept_Encoding, "gzip") == 0) ? "Content-Encoding: gzip\r\n" : "";
 
 		sprintf(
 			response,
-			"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
+			"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n%s\r\n%s",
 			strlen(response_body),
+			accept_encoding_header,
 			response_body);
-
-		printf("RESPONSE: %s\n", response);
 	}
 	else if (strcmp(path_tok, "user-agent") == 0)
 	{
-		printf("Path found: %s\n", path);
-		char *header_rest;
-
-		char *header_line = strtok_r(headers, "\r\n", &header_rest);
-
-		// Iterate over the headers till we find the User-Agent header
-		while (header_line != NULL)
+		printf("---Path found: %s\n", path);
+		if (request_headers.User_Agent == NULL)
 		{
-			printf("Header Line: %s\n", header_line);
-
-			char *headerline_rest;
-			char *header_name = strtok_r(header_line, ": ", &headerline_rest);
-
-			if (strcmp(header_name, "user-agent") == 0 || strcmp(header_name, "User-Agent") == 0)
-			{
-				// printf("User Agent line: %s\n", header_line);
-				char *user_agent = strtok_r(NULL, " ", &headerline_rest);
-				printf("User Agent Value: %s\n", user_agent);
-
-				sprintf(
-					response,
-					"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
-					strlen(user_agent),
-					user_agent);
-
-				break;
-			}
-
-			header_line = strtok_r(NULL, "\r\n", &header_rest);
+			char *error_response = "Invalid Headers: Missing User-Agent Field.\n";
+			sprintf(
+				response,
+				"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
+				strlen(error_response),
+				error_response);
+		}
+		else
+		{
+			sprintf(
+				response,
+				"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
+				strlen(request_headers.User_Agent),
+				request_headers.User_Agent);
 		}
 	}
 	else if (strcmp(path_tok, "files") == 0)
 	{
+		printf("---Path Found: %s\n", path);
 		char *filename = strtok_r(NULL, "/", &path_tok_rest);
-		printf("FileName: %s\n", filename);
+		printf("---FileName: %s\n", filename);
 
 		// Construct the file path
 		char file_path[strlen(file_directory) + strlen(file_directory) + 20];
@@ -220,7 +255,7 @@ void *handle_connection(void *p_socket_fd)
 			"%s/%s",
 			file_directory,
 			filename);
-		printf("FILE PATH: %s\n", file_path);
+		printf("---FILE PATH: %s\n", file_path);
 
 		FILE *fptr;
 
@@ -235,7 +270,7 @@ void *handle_connection(void *p_socket_fd)
 				char file_buffer[200];
 				while (fgets(file_buffer, sizeof(file_buffer), fptr))
 				{
-					printf("File Content: %s\n", file_buffer);
+					printf("---File Content: %s\n", file_buffer);
 					strncat(file_contents, file_buffer, sizeof(file_contents) - strlen(file_contents) - 1);
 				}
 
@@ -248,7 +283,7 @@ void *handle_connection(void *p_socket_fd)
 			}
 			else
 			{
-				printf("File Not found: %s\n", filename);
+				printf("---File Not found: %s\n", filename);
 				sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
 			}
 		}
@@ -266,14 +301,14 @@ void *handle_connection(void *p_socket_fd)
 			}
 			else
 			{
-				printf("Error opening file: %s\n", filename);
+				printf("***Error opening file: %s\n", filename);
 				sprintf(response, "HTTP/1.1 400 Internal Server Error\r\n\r\n");
 			}
 		}
 	}
 	else
 	{
-		printf("Path Not found: %s\n", strtok(path, "/"));
+		printf("***Path Not found: %s\n", strtok(path, "/"));
 		sprintf(response, "HTTP/1.1 404 Not Found\r\n\r\n");
 	}
 
