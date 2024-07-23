@@ -9,3 +9,4 @@ debug: true
 #
 # Available versions: c-9.2
 language_pack: c-9.2
+debug: true

@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h>
+#include "utils.h"
 
 // TRYING TO LEARN. The comments or the overall structure might have blatant mistakes or appear annoying,
 // and I frankly do not give a **** since this is written for me primarily (apologies but you can find better code than this elsewhere).
@@ -24,7 +25,8 @@ struct Request_Line
 struct Headers
 { // Storing headers here for ease of use. Only adding those i encounter as i go so the list will not be exhaustive.
 	char *User_Agent;
-	char *Accept_Encoding;
+	char **Accept_Encoding;
+	int Encodings_Count;
 };
 
 int main(int argc, char **argv)
@@ -170,7 +172,7 @@ void *handle_connection(void *p_socket_fd)
 	printf("Method: %s\nPath: %s\n", request_method, path);
 
 	// Parse the headers.
-	struct Headers request_headers = {.Accept_Encoding = "", .User_Agent = ""};
+	struct Headers request_headers = {.Accept_Encoding = NULL, .User_Agent = ""};
 
 	char *header_rest;
 	char *header_line = strtok_r(raw_headers, "\r\n", &header_rest);
@@ -188,13 +190,20 @@ void *handle_connection(void *p_socket_fd)
 		}
 		else if (strcmp(header_name, "accept-encoding") == 0 || strcmp(header_name, "Accept-Encoding") == 0)
 		{
-			request_headers.Accept_Encoding = strtok_r(NULL, " ", &headerline_rest);
+			// Parse the comma separted accept-encoding values
+			char *raw_values = strtok_r(NULL, "", &headerline_rest);
+			char **accept_encoding = tokenize_string_to_array(raw_values, ',');
+
+			int encodings_count = get_string_array_length(accept_encoding);
+
+			request_headers.Accept_Encoding = accept_encoding;
+			request_headers.Encodings_Count = encodings_count;
 		}
 
 		header_line = strtok_r(NULL, "\r\n", &header_rest);
 	}
 
-	printf("---Headers: \nAccept-Encoding: %s, User-Agent: %s\n", request_headers.Accept_Encoding, request_headers.User_Agent);
+	// printf("---Headers: \nAccept-Encoding: %s, User-Agent: %s\n", request_headers.Accept_Encoding, request_headers.User_Agent);
 
 	printf("Constructing Response...\n");
 	// Handle the request
@@ -212,7 +221,18 @@ void *handle_connection(void *p_socket_fd)
 		printf("---Path found: %s\n", path);
 
 		char *response_body = strtok_r(NULL, "/", &path_tok_rest);
-		char *accept_encoding_header = (strcmp(request_headers.Accept_Encoding, "gzip") == 0) ? "Content-Encoding: gzip\r\n" : "";
+
+		// Only supported compression method is gzip, so this will become crap when we add more.
+		int gzip = 0;
+		for (int i = 0; i < request_headers.Encodings_Count; i++)
+		{
+			if (strcmp(request_headers.Accept_Encoding[i], "gzip") == 0)
+			{
+				gzip = 1;
+			}
+		}
+		char *accept_encoding_header = gzip ? "Content-Encoding: gzip\r\n" : "";
+		printf("Response Accept Encoding header: %s\n", accept_encoding_header);
 
 		sprintf(
 			response,
