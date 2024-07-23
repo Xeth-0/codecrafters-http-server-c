@@ -18,7 +18,7 @@ char **tokenize_string_to_array(char *some_string, char delim)
 
     char *token_rest;
     char *token = strtok_r(some_string, ",", &token_rest);
-    char **tokens = malloc((count + 1) * sizeof(char *));
+    char **tokens = malloc((count + 2) * sizeof(char *));
 
     int idx = 0;
     while (token != NULL)
@@ -37,6 +37,8 @@ char **tokenize_string_to_array(char *some_string, char delim)
         // *(trimmed_token + strlen(trimmed_token)) = '\0';
         tokens[i] = strdup(trimmed_token);
     }
+    // Null terminator for the array
+    tokens[count + 1] = NULL;  
     return tokens;
 }
 
