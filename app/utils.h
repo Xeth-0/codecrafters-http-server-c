@@ -2,9 +2,12 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <zlib.h>
+#include <zconf.h>
 
 char **tokenize_string_to_array(char *some_string, char delim);
 char *trim_whitespace(char *str);
+char *compress_string(char *source_string, size_t *output_length);
 
 char **tokenize_string_to_array(char *some_string, char delim)
 {
@@ -38,7 +41,7 @@ char **tokenize_string_to_array(char *some_string, char delim)
         tokens[i] = strdup(trimmed_token);
     }
     // Null terminator for the array
-    tokens[count + 1] = NULL;  
+    tokens[count + 1] = NULL;
     return tokens;
 }
 
@@ -66,10 +69,46 @@ char *trim_whitespace(char *str)
     return str;
 }
 
-int get_string_array_length(char *array[]){
+int get_string_array_length(char *array[])
+{
     int count = 0;
-    while (array[count] != NULL){
-        count ++;
+    while (array[count] != NULL)
+    {
+        count++;
     }
     return count;
+}
+
+char *compress_string(char *source_string, size_t *output_length)
+{
+    int err;
+
+    printf("source string: %s\n", source_string);
+
+    z_stream zs = {0};
+    deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 0x1F, 8, Z_DEFAULT_STRATEGY);
+
+    uLong source_len = (uLong)strlen(source_string);
+
+    size_t dest_max_len = deflateBound(&zs, source_len);
+    char *dest_string = malloc(dest_max_len);
+
+    memset(dest_string, 0, dest_max_len);
+
+    printf("source len: %lu\nmax_len: %lu\n", source_len, dest_max_len);
+
+    printf("Compressing....\n");
+
+    zs.next_in = (Bytef *)source_string;;
+    zs.avail_in = source_len;
+    zs.next_out = (Bytef *)dest_string;
+    zs.avail_out = dest_max_len;
+
+    deflate(&zs, Z_FINISH);
+    deflateEnd(&zs);
+
+    *output_length = zs.total_out;
+
+    printf("dest string: %s\noutput len: %ln\n", dest_string, output_length);
+    return dest_string;
 }

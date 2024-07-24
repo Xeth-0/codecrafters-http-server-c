@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include "utils.h"
+#include <zlib.h>
 
 // TRYING TO LEARN. The comments or the overall structure might have blatant mistakes or appear annoying,
 // and I frankly do not give a **** since this is written for me primarily (apologies but you can find better code than this elsewhere).
@@ -207,7 +208,7 @@ void *handle_connection(void *p_socket_fd)
 
 	printf("Constructing Response...\n");
 	// Handle the request
-	char response[1024];
+	char response[2048];
 
 	char *path_tok_rest;
 	char *path_tok = strtok_r(path, "/", &path_tok_rest);
@@ -223,7 +224,8 @@ void *handle_connection(void *p_socket_fd)
 		char *response_body = strtok_r(NULL, "/", &path_tok_rest);
 
 		// Only supported compression method is gzip, so this will become crap when we add more.
-		int gzip = 0;
+		int gzip = 0; // flag for gzip compression
+
 		for (int i = 0; i < request_headers.Encodings_Count; i++)
 		{
 			if (strcmp(request_headers.Accept_Encoding[i], "gzip") == 0)
@@ -231,15 +233,33 @@ void *handle_connection(void *p_socket_fd)
 				gzip = 1;
 			}
 		}
-		char *accept_encoding_header = gzip ? "Content-Encoding: gzip\r\n" : "";
-		printf("Response Accept Encoding header: %s\n", accept_encoding_header);
 
+		char *accept_encoding_header = "";
+		uLong body_length = strlen(response_body);
+		if (gzip == 1)
+		{
+			printf("Response Body Before: %s\n", response_body);
+
+			uLong compressed_response_body_len;
+			char *old_response_body = malloc(strlen(response_body));
+			strcpy(old_response_body, response_body);
+			char *compressed_response_body = compress_string(old_response_body, &compressed_response_body_len);
+			printf("Response Body Output: %s\n", compressed_response_body);
+
+			response_body = compressed_response_body;
+			body_length = compressed_response_body_len;
+			accept_encoding_header = gzip ? "Content-Encoding: gzip\r\n" : "";
+		}
+		printf("Response Accept Encoding header: %s\n", accept_encoding_header);
 		sprintf(
 			response,
-			"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n%s\r\n%s",
-			strlen(response_body),
-			accept_encoding_header,
-			response_body);
+			"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n%s\r\n",
+			body_length,
+			accept_encoding_header);
+		send(new_socket_fd, response, strlen(response), 0);
+		send(new_socket_fd, response_body, body_length, 0);
+		close(new_socket_fd);
+		return NULL;
 	}
 	else if (strcmp(path_tok, "user-agent") == 0)
 	{
