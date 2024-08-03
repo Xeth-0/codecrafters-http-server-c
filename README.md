@@ -1,3 +1,6 @@
+## Intro
+Http Server implementation from codecrafters.io in C. To run, run server.c. Will not work on windows, as the network calls use POSIX which isn't available natively on windows. Run using wsl or a linux distro.
+
 ## Starter
 
 [![progress-banner](https://backend.codecrafters.io/progress/http-server/6780b3ce-6b88-4f66-9baa-f26fed72e603)](https://app.codecrafters.io/users/Theodorus-VII?r=2qF)
